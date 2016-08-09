@@ -42,7 +42,7 @@ public class BitmapUtils {
 
         // The matrix
         Matrix matrix = new Matrix();
-        matrix.preScale(1, -1);
+//        matrix.preScale(1, -1);//这句完全没用
 
         try {
             // The reflection bitmap, width is same with original's

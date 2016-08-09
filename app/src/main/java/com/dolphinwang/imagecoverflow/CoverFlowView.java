@@ -45,6 +45,20 @@ import android.widget.Scroller;
  */
 public class CoverFlowView<T extends CoverFlowAdapter> extends View {
 
+
+//    @Retention(RetentionPolicy.SOURCE)
+//    @IntDef({TOP,BOTTOM,CENTER_VERTICAL})
+//    public @interface GRAVITY{};
+//    public static final int TOP = 1;
+//    public static final int BOTTOM = 2;
+//    public static final int CENTER_VERTICAL = 3;
+//
+//    @Retention(RetentionPolicy.SOURCE)
+//    @IntDef({MATCH_PARENT,WRAP_CONTENT})
+//    public @interface LAYOUT{};
+//    public static final int MATCH_PARENT = 4;
+//    public static final int WRAP_CONTENT = 5;
+
     public enum CoverFlowGravity {
         TOP, BOTTOM, CENTER_VERTICAL
     }
@@ -53,9 +67,6 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
         MATCH_PARENT, WRAP_CONTENT
     }
 
-    /****
-     * static field
-     ****/
     private static final String VIEW_LOG_TAG = "CoverFlowView";
 
     private static final int DURATION = 200;
@@ -73,15 +84,20 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
     // space between each two of children
     protected final int CHILD_SPACING = -200;
 
-    // 基础alphaֵ
     private final int ALPHA_DATUM = 76;
+
     private int STANDARD_ALPHA;
-    // 基础缩放值
     private static final float CARD_SCALE = 0.15f;
+
+    //好像是滑动切换的灵敏度?
     private static float MOVE_POS_MULTIPLE = 3.0f;
+
     private static final int TOUCH_MINIMUM_MOVE = 5;
+
     private static final float MOVE_SPEED_MULTIPLE = 1;
+
     private static final float MAX_SPEED = 6.0f;
+
     private static final float FRICTION = 10.0f;
 
     private static final int LONG_CLICK_DELAY = ViewConfiguration
@@ -106,7 +122,7 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
 
     protected CoverFlowLayoutMode mLayoutMode;
 
-    private Rect mCoverFlowPadding;
+    private Rect mCoverFlowPadding;//控件的padding值
 
     private PaintFlagsDrawFilter mDrawFilter;
 
@@ -218,12 +234,18 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
         TypedArray a = context.obtainStyledAttributes(attrs,
                 R.styleable.ImageCoverFlowView);
 
-        int totalVisibleChildren = a.getInt(
-                R.styleable.ImageCoverFlowView_visibleImage, 3);
+        int totalVisibleChildren = a.getInt(R.styleable.ImageCoverFlowView_visibleImage, 3);
+
         setVisibleImage(totalVisibleChildren);
 
-        reflectHeightFraction = a.getFraction(
-                R.styleable.ImageCoverFlowView_reflectionHeight, 100, 0, 0.0f);
+        reflectHeightFraction = a.getFraction(R.styleable.ImageCoverFlowView_reflectionHeight, 100, 0, 0.0f);
+        /**
+         float result = getActivity().getResources().getFraction(R.fraction.fraction_test, 5, 6);
+
+         1）如果fraction_test 是5%(占整个屏幕的比例)，那么result就是：5%*5  用前值
+
+         2）如果fraction_test 是5%p(占父view的比例)，那么result就是：5%*6  用后值 区别就在于 %p是否被使用
+         */
         if (reflectHeightFraction > 100) {
             reflectHeightFraction = 100;
         }
@@ -238,6 +260,8 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
         mLayoutMode = CoverFlowLayoutMode.values()[a.getInt(
                 R.styleable.ImageCoverFlowView_coverflowLayoutMode,
                 CoverFlowLayoutMode.WRAP_CONTENT.ordinal())];
+
+        topImageClickEnable = a.getBoolean(R.styleable.ImageCoverFlowView_topImageClickEnable, true);
 
         a.recycle();
     }
@@ -259,9 +283,11 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
 
         mCoverFlowPadding = new Rect();
 
+        //抗锯齿处理
         mDrawFilter = new PaintFlagsDrawFilter(0, Paint.ANTI_ALIAS_FLAG
                 | Paint.FILTER_BITMAP_FLAG);
 
+        //滚动监听的帮助类
         mScroller = new Scroller(getContext(),
                 new AccelerateDecelerateInterpolator());
     }
@@ -337,14 +363,6 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
     }
 
     @Override
-    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
-        super.onSizeChanged(w, h, oldw, oldh);
-    }
-
-    /**
-     * 这个函数除了计算父控件的宽高之外，最重要的是计算出出现在屏幕上的图片的宽高
-     */
-    @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
 
@@ -356,39 +374,50 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
             return;
         }
 
+        //记录控件的padding值
         mCoverFlowPadding.left = getPaddingLeft();
         mCoverFlowPadding.right = getPaddingRight();
         mCoverFlowPadding.top = getPaddingTop();
         mCoverFlowPadding.bottom = getPaddingBottom();
 
+        //根据Mode计算所需的实际高度
         int heightMode = MeasureSpec.getMode(heightMeasureSpec);
         int widthSize = MeasureSpec.getSize(widthMeasureSpec);
         int heightSize = MeasureSpec.getSize(heightMeasureSpec);
 
+        //控件实际的高度
         int availableHeight = heightSize - mCoverFlowPadding.top
                 - mCoverFlowPadding.bottom;
 
         int maxChildTotalHeight = 0;
 
+        /**
+         * 其实就是{@linkplain #mItemCount}
+         * {@linkplain #mVisibleImages} 代表左右两边显示的Item数量
+         */
         int visibleCount = (mVisibleImages << 1) + 1;
+        //mOffset初始值为0,值向下取整
         int mid = (int) Math.floor(mOffset + 0.5);
-        int leftChild = visibleCount >> 1;
+        int leftChild = visibleCount >> 1;// = mVisibleImages
+        //找到adapter中起始绘制的item
         final int startPos = getActuallyPosition(mid - leftChild);
 
         for (int i = startPos; i < visibleCount + startPos; ++i) {
             Bitmap child = mAdapter.getImage(i);
             final int childHeight = child.getHeight();
+            //item高度 = bitmap高度 + bitmap投影高度 + 投影与原图间隔的高度
             final int childTotalHeight = (int) (childHeight + childHeight
                     * reflectHeightFraction + reflectGap);
 
+            //计算保存adapter中图片占用最大的高度值
             maxChildTotalHeight = (maxChildTotalHeight < childTotalHeight) ? childTotalHeight
                     : maxChildTotalHeight;
         }
 
-        if (heightMode == MeasureSpec.EXACTLY
-                || heightMode == MeasureSpec.AT_MOST) {
+        if (heightMode == MeasureSpec.EXACTLY || heightMode == MeasureSpec.AT_MOST) {
             // if height which parent provided is less than child need, scale
             // child height to parent provide
+            // 测绘出的高度小于父布局高度 则用父布局高度代表child高度
             if (availableHeight < maxChildTotalHeight) {
                 mChildHeight = availableHeight;
             } else {
@@ -423,6 +452,7 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
         }
 
         // Adjust movement in y-axis according to gravity
+        // 根据gravity计算child高度和  heightSize变化后 bitmap 需要移动的Y轴距离
         if (mGravity == CoverFlowGravity.CENTER_VERTICAL) {
             mChildTranslateY = (heightSize >> 1) - (mChildHeight >> 1);
         } else if (mGravity == CoverFlowGravity.TOP) {
@@ -431,9 +461,12 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
             mChildTranslateY = heightSize - mCoverFlowPadding.bottom
                     - mChildHeight;
         }
+        //倒影移动y轴距离
         mReflectionTranslateY = (int) (mChildTranslateY + mChildHeight - mChildHeight
                 * reflectHeightFraction);
 
+
+        //重新计算控件高度
         setMeasuredDimension(widthSize, heightSize);
         mVisibleChildCount = visibleCount;
         mWidth = widthSize;
@@ -456,6 +489,9 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
             return;
         }
 
+        //cavas抗锯齿处理
+        // mDrawFilter = new PaintFlagsDrawFilter(0, Paint.ANTI_ALIAS_FLAG
+        // | Paint.FILTER_BITMAP_FLAG);
         canvas.setDrawFilter(mDrawFilter);
 
         final float offset = mOffset;
@@ -478,6 +514,7 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
             drawChild(canvas, mid, i, i - offset);
         }
 
+        //代表最上层的bitmap
         if ((offset - (int) offset) == 0.0f) {
             imageOnTop(getActuallyPosition((int) offset));
         }
@@ -494,8 +531,10 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
         final Bitmap child = mAdapter.getImage(actuallyPosition);
         final Bitmap reflection = obtainReflection(child);
 
+        //查询是否存储过bitmap的宽高度
         int[] wAndh = mImageRecorder.get(actuallyPosition);
         if (wAndh == null) {
+            //没有对应位置的bitmap值,设置新值
             wAndh = new int[]{child.getWidth(), child.getHeight()};
             mImageRecorder.put(actuallyPosition, wAndh);
         } else {
@@ -530,37 +569,50 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
         float scale = 0;
         //this scale make sure that each image will be smaller than the
         //previous one
-        if (position != mid) {
-            scale = 1 - Math.abs(offset) * 0.25f;
-        } else {
-            scale = 1 - Math.abs(offset) * CARD_SCALE;
-        }
-        //float scale = 1 - Math.abs(offset) * CARD_SCALE;
-        // 延x轴移动的距离应该根据center图片决定
+//        if (position != mid) {
+//            scale = 1 - Math.abs(offset) * CARD_SCALE;
+//        } else {
+//            scale = 1 - Math.abs(offset) * CARD_SCALE;
+//        }
+        //缩放比例 offset 越大缩放比例越大
+        scale = 1 - Math.abs(offset) * CARD_SCALE;
         float translateX = 0;
 
+        //原始bitmap占据的高度
         final int originalChildHeight = (int) (mChildHeight - mChildHeight
                 * reflectHeightFraction - reflectGap);
+
+        //整个view占据的高度
         final int childTotalHeight = (int) (child.getHeight()
                 + child.getHeight() * reflectHeightFraction + reflectGap);
 
+        //原始bitmap缩放比
         final float originalChildHeightScale = (float) originalChildHeight
                 / child.getHeight();
+
+        //换算后的缩放比
         final float childHeightScale = originalChildHeightScale * scale;
+
+        //缩放后的bitmap的宽度(包含了非mid bitmap 通过offset -> scale -> childHeightScale)
         final int childWidth = (int) (child.getWidth() * childHeightScale);
+
+        //最中间Bitmap的宽度  缩放比和高度保持一样
         final int centerChildWidth = (int) (child.getWidth() * originalChildHeightScale);
+
+        //中间bitmap离左边的space
         int leftSpace = ((mWidth >> 1) - mCoverFlowPadding.left)
                 - (centerChildWidth >> 1);
+        //中间bitmap离右边的space
         int rightSpace = (((mWidth >> 1) - mCoverFlowPadding.right) - (centerChildWidth >> 1));
 
-        if (offset <= 0)
+        if (offset <= 0) {//计算左边的item translateX 值  离中心越远 x值越小
             translateX = ((float) leftSpace / mVisibleImages)
                     * (mVisibleImages + offset) + mCoverFlowPadding.left;
-
-        else
+        }else {
             translateX = mWidth - ((float) rightSpace / mVisibleImages)
                     * (mVisibleImages - offset) - childWidth
                     - mCoverFlowPadding.right;
+        }
 
         float alpha = (float) 254 - Math.abs(offset) * STANDARD_ALPHA;
 
@@ -573,7 +625,6 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
         mDrawChildPaint.setAlpha((int) alpha);
 
         mChildTransformer.preTranslate(0, -(childTotalHeight >> 1));
-        // matrix中的postxxx为顺序执行，相反prexxx为倒叙执行
         mChildTransformer.postScale(childHeightScale, childHeightScale);
 
         if ((offset - (int) offset) == 0.0f) {
@@ -591,9 +642,11 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
         mChildTransformer.postTranslate(translateX, mChildTranslateY
                 + adjustedChildTranslateY);
 
-        // Log.d(VIEW_LOG_TAG, "position= " + position + " mChildTranslateY= "
-        // + mChildTranslateY + adjustedChildTranslateY);
+         Log.i(VIEW_LOG_TAG, "position= " + position + " mChildTranslateY= "
+         + mChildTranslateY + adjustedChildTranslateY);
 
+        //下面方式能实现去除 childTotalHeight >> 1 后的效果
+//        mChildTransformer.postTranslate(0, 100 * Math.abs(offset));
         getCustomTransformMatrix(mChildTransformer, mDrawChildPaint, child,
                 position, offset);
 
@@ -623,15 +676,16 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
                                             Paint mDrawChildPaint, Bitmap child, int position, float offset) {
 
         /** example code to make image y-axis rotation **/
-        // Camera c = new Camera();
-        // c.save();
-        // Matrix m = new Matrix();
-        // c.rotateY(10 * (-offset));
-        // c.getMatrix(m);
-        // c.restore();
-        // m.preTranslate(-(child.getWidth() >> 1), -(child.getHeight() >> 1));
-        // m.postTranslate(child.getWidth() >> 1, child.getHeight() >> 1);
-        // mChildTransfromMatrix.preConcat(m);
+        //用camera来实现3D旋转
+//         Camera c = new Camera();
+//         c.save();
+//         Matrix m = new Matrix();
+//         c.rotateY(10 * (-offset));
+//         c.getMatrix(m);
+//         c.restore();
+//         m.preTranslate(-(child.getWidth() >> 1), -(child.getHeight() >> 1));
+//         m.postTranslate(child.getWidth() >> 1, child.getHeight() >> 1);
+//         transfromer.preConcat(m);
     }
 
     private void imageOnTop(int position) {
@@ -663,6 +717,7 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         if (getParent() != null) {
+            // 阻止父层的View截获touch事件
             getParent().requestDisallowInterceptTouchEvent(true);
         }
 
@@ -673,6 +728,7 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
                     mScroller.abortAnimation();
                     invalidate();
                 }
+                //先Remove 再重新触发
                 stopLongClick();
                 triggleLongClick(event.getX(), event.getY());
                 touchBegan(event);
@@ -689,6 +745,12 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
         return false;
     }
 
+    /**
+     * 从Down操作开始延迟判断是否是是在Long click，如果在LONG_CLICK_DELAY时间内再次
+     * 触发Down操作,则重新开始执行Long click 逻辑
+     * @param x
+     * @param y
+     */
     private void triggleLongClick(float x, float y) {
         if (mTouchRect.contains(x, y) && mLongClickListener != null
                 && topImageClickEnable && !mLongClickPosted) {
@@ -707,6 +769,10 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
         }
     }
 
+    /**
+     * 开始执行touch逻辑
+     * @param event
+     */
     private void touchBegan(MotionEvent event) {
         endAnimation();
 
@@ -718,14 +784,19 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
 
         mTouchMoved = false;
 
+        // ????什么算法????
         mTouchStartPos = (x / mWidth) * MOVE_POS_MULTIPLE - 5;
         mTouchStartPos /= 2;
+        Log.e(VIEW_LOG_TAG,
+                " TouchStartPos ==>" + mTouchStartPos);
 
         mVelocity = VelocityTracker.obtain();
         mVelocity.addMovement(event);
     }
 
     private void touchMoved(MotionEvent event) {
+
+        //计算滚动到此的pos
         float pos = (event.getX() / mWidth) * MOVE_POS_MULTIPLE - 5;
         pos /= 2;
 
@@ -741,6 +812,7 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
             stopLongClick();
         }
 
+        //offset 位移
         mOffset = mStartOffset + mTouchStartPos - pos;
 
         invalidate();
@@ -850,7 +922,7 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
     /**
      * Convert draw-index to index in adapter
      *
-     * @param position position to draw
+     * @param position position to draw 绘制点的位置 0 表示中间的position
      * @return
      */
     private int getActuallyPosition(int position) {
@@ -860,7 +932,9 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
 
         int max = mAdapter.getCount();
 
+        //将实际绘制的坐标 转换成 adapter 中的实际的坐标
         position += mVisibleImages;
+        //保证左右的循环滚动 position -+ max
         while (position < 0 || position >= max) {
             if (position < 0) {
                 position += max;
@@ -872,6 +946,11 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
         return position;
     }
 
+    /**
+     * 获取倒影image Bitmap,将src Bitmap Lru缓存起来以备使用
+     * @param src
+     * @return
+     */
     private Bitmap obtainReflection(Bitmap src) {
         if (reflectHeightFraction <= 0) {
             return null;
@@ -880,6 +959,7 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
         Bitmap reflection = mRecycler.getCachedReflectiuon(src);
 
         if (reflection == null || reflection.isRecycled()) {
+            //如果倒影bitmap不存在 先移除原始的view
             mRecycler.removeReflectionCache(src);
 
             reflection = BitmapUtils.createReflectedBitmap(src,
@@ -1021,6 +1101,7 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
 
     class RecycleBin {
 
+        //Lru缓存来来缓存bitmap
         final LruCache<Integer, Bitmap> bitmapCache = new LruCache<Integer, Bitmap>(
                 getCacheSize(getContext())) {
             @Override
@@ -1048,6 +1129,7 @@ public class CoverFlowView<T extends CoverFlowAdapter> extends View {
 
         public void buildReflectionCache(Bitmap origin, Bitmap b) {
             bitmapCache.put(origin.hashCode(), b);
+            //内存释放
             Runtime.getRuntime().gc();
         }
 
